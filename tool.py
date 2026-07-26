@@ -2,42 +2,46 @@
 # -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════════╗
-║  🚀 TREO CƯỢC TÀI XỈU - SIÊU AI - FULL TÍNH NĂNG         ║
+║  🚀 TREO CƯỢC TÀI XỈU - SIÊU AI - CHẠY LUÔN KHÔNG CẦN CÀI ║
 ║  🤖 AUTO BET - AI DỰ ĐOÁN - QUẢN LÝ VỐN                  ║
-║  📊 GIAO DIỆN ĐẸP - MENU ĐIỀU KHIỂN                      ║
-║  💻 CHẠY ĐƯỢC TRÊN: WINDOWS / MAC / REPLIT / RENDER      ║
+║  📊 GIAO DIỆN ĐẸP - MENU ĐIỀU KHIỂN - NHẬP OTP TRỰC TIẾP ║
+║  💻 CHẠY: WINDOWS / MAC / LINUX / REPLIT                  ║
 ╚══════════════════════════════════════════════════════════════╝
 """
+import subprocess
+import sys
+import os
+
+# ==================== TỰ ĐỘNG CÀI THƯ VIỆN ====================
+print(">>> Đang kiểm tra thư viện...")
+LIBS = ['telethon', 'numpy', 'colorama']
+for lib in LIBS:
+    try:
+        __import__(lib.replace('-', '_'))
+        print(f"  ✓ {lib} đã có")
+    except ImportError:
+        print(f"  ⏳ Đang cài {lib}...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", lib, "-q"])
+        print(f"  ✓ {lib} đã cài xong")
+
+print(">>> Tất cả thư viện đã sẵn sàng!\n")
+
 import asyncio
 import re
 import json
-import os
-import sys
 import time
 import random
 import threading
 from datetime import datetime, timedelta
 from collections import deque, defaultdict
 from pathlib import Path
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
-# ==================== CÀI ĐẶT TỰ ĐỘNG ====================
-def install_libs():
-    libs = ['telethon', 'numpy', 'colorama']
-    for lib in libs:
-        try:
-            __import__(lib.replace('-', '_'))
-        except ImportError:
-            os.system(f"{sys.executable} -m pip install {lib} -q")
-
-install_libs()
 
 import numpy as np
 from colorama import init, Fore, Back, Style
 init(autoreset=True)
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.errors import FloodWaitError
+from telethon.errors import FloodWaitError, SessionPasswordNeededError
 
 # ==================== MÀU SẮC ====================
 class C:
@@ -56,669 +60,507 @@ class C:
     BOLD = Style.BRIGHT
     RS = Style.RESET_ALL
 
-# ==================== CONFIG MẶC ĐỊNH ====================
-DEFAULT_CONFIG = {
-    'phone': '+84346139930',
-    'api_id': 35742832,
-    'api_hash': '93ac3807fede03197c86170865e01571',
-    'channel': '@laucuataixiuroom',
-    'bot': '@laucua_tx_room_bot',
-    'session_string': '',
-    'bet_mode': 'fixed',
-    'fixed_bet': 10000,
-    'bet_percent': 5.0,
-    'min_bet': 1000,
-    'max_bet': 10000000,
-    'max_bets_per_session': 1,
-    'min_confidence': 55.0,
-    'wait_after_open': 8,
-    'golden_start': 20,
-    'golden_end': 60,
-    'max_drawdown': 35,
-    'max_consecutive_loss': 6,
-    'take_profit': 500000,
-    'stop_loss': 500000,
-    'recovery_enabled': False,
-    'recovery_multiplier': 1.5,
-    'recovery_max_steps': 3,
-    'auto_bet': True,
-    'ai_enabled': True,
-    'bet_side': 'auto',
-    'capital': 1000000,
-}
+# ==================== CONFIG ====================
+PHONE = "+84346139930"
+API_ID = 35742832
+API_HASH = "93ac3807fede03197c86170865e01571"
+CHANNEL = "@laucuataixiuroom"
+BOT = "@laucua_tx_room_bot"
+SESSION_FILE = "treo_session"
 
+# ==================== CÀI ĐẶT ====================
 class Config:
     def __init__(self):
-        self.data = {}
+        self.data = {
+            'fixed_bet': 10000,
+            'bet_percent': 5.0,
+            'bet_mode': 'fixed',
+            'bet_side': 'auto',
+            'max_bets': 1,
+            'min_confidence': 55,
+            'wait_open': 8,
+            'tp': 500000,
+            'sl': 500000,
+            'recovery': False,
+            'auto_bet': True,
+            'ai_enabled': True,
+        }
         self.load()
     
     def load(self):
         try:
-            if Path('config.json').exists():
-                with open('config.json', 'r', encoding='utf-8') as f:
-                    self.data = json.load(f)
+            with open('treo_config.json', 'r') as f:
+                self.data.update(json.load(f))
         except:
-            self.data = {}
+            pass
     
     def save(self):
-        with open('config.json', 'w', encoding='utf-8') as f:
-            json.dump(self.data, f, indent=2, ensure_ascii=False)
+        with open('treo_config.json', 'w') as f:
+            json.dump(self.data, f, indent=2)
     
     def get(self, key, default=None):
-        return self.data.get(key, DEFAULT_CONFIG.get(key, default))
+        return self.data.get(key, default)
     
     def set(self, key, value):
         self.data[key] = value
-    
-    def reset(self):
-        self.data = {}
-        self.save()
 
 CFG = Config()
 
-# ==================== AI ENGINE ====================
-class SuperAI:
+# ==================== AI ====================
+class AI:
     def __init__(self):
-        self.history = deque(maxlen=5000)
-        self.patterns = defaultdict(lambda: {'T': 0, 'X': 0, 'total': 0})
-        self.results = deque(maxlen=300)
-        self.total_pred = 0
-        self.correct_pred = 0
-        self._init_seed()
+        self.h = deque(maxlen=5000)
+        self.p = defaultdict(lambda: {'T':0,'X':0,'t':0})
+        self.r = deque(maxlen=300)
+        self.tp = 0
+        self.cp = 0
+        self._seed()
     
-    def _init_seed(self):
+    def _seed(self):
         for _ in range(3):
-            for v in ['T', 'X', 'T', 'T', 'X', 'T', 'X', 'X', 'T', 'T']:
+            for v in ['T','X','T','T','X','T','X','X','T','T']:
                 self.add(v)
     
-    def add(self, value):
-        if value not in ['T', 'X']:
-            return
-        self.history.append(value)
-        seq = list(self.history)
-        for length in range(2, min(18, len(seq))):
-            for i in range(len(seq) - length):
-                pattern = ''.join(seq[i:i+length])
-                if i + length < len(seq):
-                    self.patterns[pattern][seq[i+length]] += 1
-                    self.patterns[pattern]['total'] += 1
+    def add(self, v):
+        if v not in ['T','X']: return
+        self.h.append(v)
+        s = list(self.h)
+        for l in range(2, min(15, len(s))):
+            for i in range(len(s)-l):
+                pat = ''.join(s[i:i+l])
+                if i+l < len(s):
+                    self.p[pat][s[i+l]] += 1
+                    self.p[pat]['t'] += 1
     
     def predict(self):
-        if len(self.history) < 5:
-            return {'side': 'T', 'confidence': 0.5, 'level': 'THẤP', 'reasons': []}
+        if len(self.h) < 5:
+            return {'s':'T','c':0.5,'lv':'THẤP'}
         
-        seq = list(self.history)
-        scores = {'T': 0.0, 'X': 0.0}
-        reasons = []
+        s = list(self.h)
+        sc = {'T':0.0,'X':0.0}
+        tw = 0
+        rs = []
         
-        # Pattern matching
-        for length in range(min(15, len(seq)), 2, -1):
-            pattern = ''.join(seq[-length:])
-            if pattern in self.patterns and self.patterns[pattern]['total'] >= 3:
-                weight = length / 12.0
-                total = self.patterns[pattern]['total']
-                for side in ['T', 'X']:
-                    scores[side] += (self.patterns[pattern][side] / total) * weight
+        for l in range(min(14,len(s)), 2, -1):
+            pat = ''.join(s[-l:])
+            if pat in self.p and self.p[pat]['t'] >= 3:
+                w = l/10.0
+                t = self.p[pat]['t']
+                for sd in ['T','X']:
+                    sc[sd] += (self.p[pat][sd]/t)*w
+                tw += w
         
-        # Normalize scores
-        total = scores['T'] + scores['X']
-        if total > 0:
-            scores['T'] /= total
-            scores['X'] /= total
-            reasons.append('Pattern match')
+        if tw > 0:
+            for sd in sc: sc[sd] /= tw
+            rs.append(f'{len(self.p)} mẫu')
         else:
-            scores = {'T': 0.5, 'X': 0.5}
+            sc = {'T':0.5,'X':0.5}
         
-        # Trend analysis
-        if len(seq) >= 15:
-            recent = seq[-15:]
-            t_ratio = sum(1 for v in recent if v == 'T') / 15
-            scores['T'] = scores['T'] * 0.7 + t_ratio * 0.3
-            scores['X'] = scores['X'] * 0.7 + (1 - t_ratio) * 0.3
-            reasons.append(f'Trend T:{t_ratio:.0%}')
+        if len(s) >= 10:
+            t10 = sum(1 for v in s[-10:] if v=='T')/10
+            sc['T'] = sc['T']*0.7 + t10*0.3
+            sc['X'] = sc['X']*0.7 + (1-t10)*0.3
+            rs.append(f'Trend T:{t10:.0%}')
         
-        # Streak analysis
-        last = seq[-1]
+        last = s[-1]
         streak = 1
-        for i in range(len(seq)-2, -1, -1):
-            if seq[i] == last:
-                streak += 1
-            else:
-                break
+        for i in range(len(s)-2,-1,-1):
+            if s[i]==last: streak+=1
+            else: break
         
         if streak >= 6:
-            opposite = 'X' if last == 'T' else 'T'
-            scores[opposite] += 0.2
-            reasons.append(f'Streak {streak} → đảo')
-        elif streak >= 3:
-            reasons.append(f'Streak {streak}')
+            opp = 'X' if last=='T' else 'T'
+            sc[opp] += 0.2
+            rs.append(f'Streak {streak} → đảo')
         
-        # Anti-bias
-        if len(seq) >= 12:
-            recent_12 = seq[-12:]
-            t_count = sum(1 for v in recent_12 if v == 'T')
-            if t_count >= 10 and scores['T'] > scores['X']:
-                scores['X'] += 0.15
-                reasons.append('Anti-bias T')
-            elif t_count <= 2 and scores['X'] > scores['T']:
-                scores['T'] += 0.15
-                reasons.append('Anti-bias X')
+        if len(s) >= 12:
+            t12 = sum(1 for v in s[-12:] if v=='T')
+            if t12 >= 10 and sc['T'] > sc['X']:
+                sc['X'] += 0.15
+                rs.append('Anti-bias T')
+            elif t12 <= 2 and sc['X'] > sc['T']:
+                sc['T'] += 0.15
+                rs.append('Anti-bias X')
         
-        # Final decision
-        side = 'T' if scores['T'] >= scores['X'] else 'X'
-        confidence = max(scores['T'], scores['X'])
+        sd = 'T' if sc['T'] >= sc['X'] else 'X'
+        cf = max(sc['T'], sc['X'])
+        lv = 'CAO' if cf>=0.7 else 'TB' if cf>=0.6 else 'THẤP'
         
-        if confidence >= 0.75:
-            level = 'CAO'
-        elif confidence >= 0.60:
-            level = 'TRUNG BÌNH'
-        else:
-            level = 'THẤP'
-        
-        return {
-            'side': side,
-            'confidence': confidence,
-            'level': level,
-            'reasons': reasons,
-            'scores': scores
-        }
+        return {'s':sd,'c':cf,'lv':lv,'rs':rs}
     
-    def record(self, predicted, actual):
-        if predicted not in ['T', 'X'] or actual not in ['T', 'X']:
-            return
-        self.total_pred += 1
-        if predicted == actual:
-            self.correct_pred += 1
-        self.results.append(predicted == actual)
+    def record(self, p, a):
+        if p not in ['T','X'] or a not in ['T','X']: return
+        self.tp += 1
+        if p==a: self.cp += 1
+        self.r.append(p==a)
     
-    def accuracy(self, n=None):
-        r = list(self.results)
-        if n and len(r) > n:
-            r = r[-n:]
-        return sum(r) / len(r) if r else 0.5
+    def acc(self, n=None):
+        r = list(self.r)
+        if n and len(r)>n: r = r[-n:]
+        return sum(r)/len(r) if r else 0.5
 
-# ==================== RISK MANAGER ====================
-class RiskManager:
+# ==================== RISK ====================
+class Risk:
     def __init__(self):
-        self.capital = CFG.get('capital', 1000000)
-        self.peak = self.capital
-        self.consecutive_wins = 0
-        self.consecutive_losses = 0
-        self.recovery_active = False
-        self.recovery_step = 0
-        self.total_trades = 0
-        self.winning_trades = 0
+        self.cap = 1000000
+        self.peak = self.cap
+        self.cw = 0
+        self.cl = 0
+        self.ra = False
+        self.rs = 0
+        self.tt = 0
+        self.wt = 0
     
-    def update_capital(self, new_capital):
-        self.capital = new_capital
-        if new_capital > self.peak:
-            self.peak = new_capital
+    def upd(self, c):
+        self.cap = c
+        if c > self.peak: self.peak = c
     
-    def calculate_bet(self, confidence):
+    def bet(self, cf):
         if CFG.get('bet_mode') == 'fixed':
-            amount = CFG.get('fixed_bet', 10000)
+            amt = CFG.get('fixed_bet', 10000)
         else:
-            base = int(self.capital * (CFG.get('bet_percent', 5) / 100))
-            amount = int(base * (0.3 + confidence * 1.4))
+            base = int(self.cap * (CFG.get('bet_percent',5)/100))
+            amt = int(base * (0.3 + cf*1.4))
         
-        # Drawdown protection
-        dd = self.get_drawdown()
-        if dd > 0.25:
-            amount = int(amount * 0.2)
-        elif dd > 0.15:
-            amount = int(amount * 0.5)
-        elif dd > 0.10:
-            amount = int(amount * 0.7)
+        dd = self.dd()
+        if dd > 0.25: amt = int(amt*0.2)
+        elif dd > 0.15: amt = int(amt*0.5)
+        elif dd > 0.1: amt = int(amt*0.7)
         
-        # Consecutive loss protection
-        if self.consecutive_losses >= 5:
-            amount = int(amount * 0.1)
-        elif self.consecutive_losses >= 3:
-            amount = int(amount * 0.3)
-        elif self.consecutive_losses >= 2:
-            amount = int(amount * 0.5)
+        if self.cl >= 5: amt = int(amt*0.1)
+        elif self.cl >= 3: amt = int(amt*0.3)
+        elif self.cl >= 2: amt = int(amt*0.5)
         
-        # Win streak boost
-        if self.consecutive_wins >= 5:
-            amount = int(amount * 1.3)
-        elif self.consecutive_wins >= 3:
-            amount = int(amount * 1.15)
+        if self.cw >= 5: amt = int(amt*1.3)
+        elif self.cw >= 3: amt = int(amt*1.15)
         
-        # Recovery mode
-        if self.recovery_active and CFG.get('recovery_enabled'):
-            if self.recovery_step < CFG.get('recovery_max_steps', 3):
-                amount = int(amount * (CFG.get('recovery_multiplier', 1.5) ** self.recovery_step))
+        if self.ra and CFG.get('recovery') and self.rs < 3:
+            amt = int(amt * (1.5 ** self.rs))
         
-        return max(CFG.get('min_bet', 1000), min(amount, CFG.get('max_bet', 10000000), int(self.capital * 0.12)))
+        return max(1000, min(amt, 10000000, int(self.cap*0.12)))
     
-    def record_trade(self, won):
-        self.total_trades += 1
+    def rec(self, won):
+        self.tt += 1
         if won:
-            self.winning_trades += 1
-            self.consecutive_wins += 1
-            self.consecutive_losses = 0
-            self.recovery_active = False
-            self.recovery_step = 0
+            self.wt += 1; self.cw += 1; self.cl = 0
+            self.ra = False; self.rs = 0
         else:
-            self.consecutive_losses += 1
-            self.consecutive_wins = 0
-            if CFG.get('recovery_enabled') and self.recovery_step < CFG.get('recovery_max_steps', 3):
-                if not self.recovery_active:
-                    self.recovery_active = True
-                self.recovery_step += 1
+            self.cl += 1; self.cw = 0
+            if CFG.get('recovery') and self.rs < 3:
+                if not self.ra: self.ra = True
+                self.rs += 1
     
-    def get_drawdown(self):
-        if self.peak <= 0:
-            return 0
-        return (self.peak - self.capital) / self.peak
+    def dd(self):
+        return (self.peak-self.cap)/self.peak if self.peak>0 else 0
     
-    def should_stop(self):
-        reasons = []
-        dd = self.get_drawdown()
-        if dd >= CFG.get('max_drawdown', 35) / 100:
-            reasons.append(f'DD {dd:.1%}')
-        if self.consecutive_losses >= CFG.get('max_consecutive_loss', 6):
-            reasons.append(f'{self.consecutive_losses} thua liên tiếp')
-        if self.capital < CFG.get('min_bet', 1000):
-            reasons.append('Hết vốn')
-        profit = self.capital - CFG.get('capital', 1000000)
-        if profit >= CFG.get('take_profit', 500000):
-            reasons.append(f'Đạt TP +{profit:,}đ')
-        if profit <= -CFG.get('stop_loss', 500000):
-            reasons.append(f'Chạm SL {profit:,}đ')
-        return len(reasons) > 0, ', '.join(reasons)
+    def stop(self):
+        r = []
+        dd = self.dd()
+        if dd >= 0.35: r.append(f'DD {dd:.1%}')
+        if self.cl >= 6: r.append(f'{self.cl} thua')
+        if self.cap < 1000: r.append('Hết vốn')
+        profit = self.cap - 1000000
+        if profit >= CFG.get('tp'): r.append(f'TP +{profit:,}đ')
+        if profit <= -CFG.get('sl'): r.append(f'SL {profit:,}đ')
+        return len(r)>0, ', '.join(r)
 
 # ==================== DETECTOR ====================
 class Detector:
     @staticmethod
     def detect(text):
-        if not text:
-            return None
-        
+        if not text: return None
         t = text.lower()
         
-        if any(k in t for k in ['bắt đầu', 'mở cược', '🎮', 'phiên mới', 'đã mở']):
-            return {'type': 'open'}
-        
-        if any(k in t for k in ['hết thời gian', 'đóng cược', '⌛', 'hết giờ', 'đã đóng']):
-            return {'type': 'close'}
-        
+        if any(k in t for k in ['bắt đầu','mở cược','🎮','phiên mới','đã mở']):
+            return {'t':'open'}
+        if any(k in t for k in ['hết thời gian','đóng cược','⌛','hết giờ']):
+            return {'t':'close'}
         if re.search(r'cược thành công|đã cược|🐯.*cược', text, re.I):
-            r = {'type': 'bet_success'}
-            if 'tài' in t: r['side'] = 'T'
-            if 'xỉu' in t: r['side'] = 'X'
+            r = {'t':'bet_ok'}
+            if 'tài' in t: r['s']='T'
+            if 'xỉu' in t: r['s']='X'
             return r
-        
-        if re.search(r'thắng|win|chúc mừng|🎉', text, re.I) and '+' in text:
-            return {'type': 'win'}
-        
-        if re.search(r'thua|lose|😢|❌', text, re.I) and '-' in text:
-            return {'type': 'loss'}
-        
+        if re.search(r'thắng|win|🎉', text, re.I) and '+' in text:
+            return {'t':'win'}
+        if re.search(r'thua|lose|😢', text, re.I) and '-' in text:
+            return {'t':'loss'}
         if re.search(r'kết quả|📝', text, re.I):
-            if re.search(r'tài.*thắng|thắng.*tài', text, re.I): return {'type': 'result', 'winner': 'T'}
-            if re.search(r'xỉu.*thắng|thắng.*xỉu', text, re.I): return {'type': 'result', 'winner': 'X'}
-            has_t = 'tài' in t
-            has_x = 'xỉu' in t
-            if has_t and not has_x: return {'type': 'result', 'winner': 'T'}
-            if has_x and not has_t: return {'type': 'result', 'winner': 'X'}
-            return {'type': 'result', 'winner': None}
-        
+            if re.search(r'tài.*thắng|thắng.*tài', text, re.I): return {'t':'result','w':'T'}
+            if re.search(r'xỉu.*thắng|thắng.*xỉu', text, re.I): return {'t':'result','w':'X'}
+            ht = 'tài' in t; hx = 'xỉu' in t
+            if ht and not hx: return {'t':'result','w':'T'}
+            if hx and not ht: return {'t':'result','w':'X'}
+            return {'t':'result','w':None}
         m = re.search(r'số dư\s*:?\s*([\d.,]+)', text, re.I)
         if m:
-            try: return {'type': 'balance', 'amount': int(m.group(1).replace('.','').replace(',',''))}
+            try: return {'t':'bal','a':int(m.group(1).replace('.','').replace(',',''))}
             except: pass
-        
         return None
 
 # ==================== ENGINE ====================
 class Engine:
     def __init__(self, ai, risk, client):
-        self.ai = ai
-        self.risk = risk
-        self.client = client
-        self.open_time = None
-        self.state = 'idle'
-        self.learned_duration = 95
-        self.open_durations = deque(maxlen=30)
-        self.bets_placed = []
-        self.flood_until = None
-        self.auto_trade = CFG.get('auto_bet', True)
-        self.last_prediction = None
-        self.bet_status = None
+        self.ai = ai; self.risk = risk; self.client = client
+        self.ot = None; self.st = 'idle'
+        self.ld = 95; self.od = deque(maxlen=30)
+        self.bp = []; self.fu = None
+        self.at = CFG.get('auto_bet')
+        self.lp = None; self.bs = None
     
     def on_open(self):
         now = datetime.now()
-        if self.open_time:
-            d = (now - self.open_time).total_seconds()
-            if 80 < d < 150:
-                self.open_durations.append(d)
-                if len(self.open_durations) >= 3:
-                    self.learned_duration = int(np.median(list(self.open_durations)))
-        self.open_time = now
-        self.state = 'open'
-        self.bets_placed = []
-        self.bet_status = None
-        self.last_prediction = self.ai.predict()
+        if self.ot:
+            d = (now-self.ot).total_seconds()
+            if 80<d<150:
+                self.od.append(d)
+                if len(self.od)>=3: self.ld = int(np.median(list(self.od)))
+        self.ot = now; self.st = 'open'; self.bp = []
+        self.bs = None; self.lp = self.ai.predict()
     
     def can_bet(self):
-        if not self.auto_trade:
-            return False, "Auto tắt"
-        if self.state != 'open':
-            return False, "Chưa mở phiên"
-        if len(self.bets_placed) >= CFG.get('max_bets_per_session', 1):
-            return False, "Đã đủ số lần"
-        if self.flood_until and datetime.now() < self.flood_until:
-            w = (self.flood_until - datetime.now()).total_seconds()
-            return False, f"Flood {w:.0f}s"
-        if not self.open_time:
-            return False, "Không có thời gian"
-        
-        elapsed = (datetime.now() - self.open_time).total_seconds()
-        remaining = self.learned_duration - elapsed
-        
-        if elapsed < CFG.get('wait_after_open', 8):
-            return False, f"Đợi {int(CFG.get('wait_after_open', 8) - elapsed)}s"
-        if remaining < 10:
-            return False, f"Sắp đóng ({int(remaining)}s)"
-        
-        golden = self.learned_duration * (CFG.get('golden_start', 20) / 100)
-        if elapsed < golden:
-            return False, "Chưa đến vùng vàng"
-        
-        return True, "OK"
+        if not self.at: return False,"Auto tắt"
+        if self.st != 'open': return False,"Chưa mở"
+        if len(self.bp) >= CFG.get('max_bets',1): return False,"Đủ"
+        if self.fu and datetime.now() < self.fu:
+            return False,f"Flood {(self.fu-datetime.now()).total_seconds():.0f}s"
+        if not self.ot: return False,"Ko time"
+        e = (datetime.now()-self.ot).total_seconds()
+        r = self.ld - e
+        if e < CFG.get('wait_open',8): return False,f"Đợi {int(CFG.get('wait_open',8)-e)}s"
+        if r < 10: return False,f"Sắp đóng ({int(r)}s)"
+        if e < self.ld*0.2: return False,"Chưa vùng vàng"
+        return True,"OK"
     
-    async def execute_bet(self, side, amount):
-        if amount >= 1000000:
-            cmd = f"/{side} {amount/1000000:.1f}m"
-        elif amount >= 1000:
-            cmd = f"/{side} {amount//1000}k"
-        else:
-            cmd = f"/{side} {amount}"
-        
+    async def exec_bet(self, side, amt):
+        if amt >= 1000000: cmd = f"/{side} {amt/1000000:.1f}m"
+        elif amt >= 1000: cmd = f"/{side} {amt//1000}k"
+        else: cmd = f"/{side} {amt}"
         try:
-            await self.client.send_message(CFG.get('bot'), cmd)
-            self.bets_placed.append({
-                'side': side,
-                'amount': amount,
-                'time': datetime.now().isoformat()
-            })
-            self.bet_status = 'pending'
+            await self.client.send_message(BOT, cmd)
+            self.bp.append({'s':side,'a':amt})
+            self.bs = 'pending'
             return True, cmd
         except FloodWaitError as e:
-            self.flood_until = datetime.now() + timedelta(seconds=e.seconds)
+            self.fu = datetime.now()+timedelta(seconds=e.seconds)
             return False, f"Flood {e.seconds}s"
         except Exception as e:
             return False, str(e)
     
-    def progress(self):
-        if self.state == 'open' and self.open_time:
-            return min(1.0, (datetime.now() - self.open_time).total_seconds() / max(1, self.learned_duration))
+    def prog(self):
+        if self.st=='open' and self.ot:
+            return min(1.0,(datetime.now()-self.ot).total_seconds()/max(1,self.ld))
         return 0
     
-    def remaining(self):
-        if self.state == 'open' and self.open_time:
-            return max(0, int(self.learned_duration - (datetime.now() - self.open_time).total_seconds()))
+    def rem(self):
+        if self.st=='open' and self.ot:
+            return max(0,int(self.ld-(datetime.now()-self.ot).total_seconds()))
         return 0
 
-# ==================== TOOL CHÍNH ====================
+# ==================== TOOL ====================
 class Tool:
     def __init__(self):
-        self.ai = SuperAI()
-        self.risk = RiskManager()
-        self.detector = Detector()
+        self.ai = AI()
+        self.risk = Risk()
+        self.det = Detector()
         self.client = None
-        self.engine = None
+        self.eng = None
         
         self.active = False
         self.paused = False
-        self.auto_mode = CFG.get('auto_bet', True)
-        self.start_time = datetime.now()
-        self.session_count = 0
+        self.auto = CFG.get('auto_bet')
+        self.st = datetime.now()
+        self.sess = 0
         self.logs = deque(maxlen=200)
         
-        Path('dl').mkdir(exist_ok=True)
-        self._load_state()
+        self._load()
     
-    def _load_state(self):
+    def _load(self):
         try:
-            if Path('dl/state.json').exists():
-                with open('dl/state.json', 'r') as f:
-                    d = json.load(f)
-                self.risk.capital = d.get('capital', self.risk.capital)
-                self.risk.peak = d.get('peak', self.risk.capital)
-                self.risk.total_trades = d.get('trades', 0)
-                self.risk.winning_trades = d.get('wins', 0)
-        except:
-            pass
+            with open('treo_state.json','r') as f:
+                d = json.load(f)
+            self.risk.cap = d.get('cap',1000000)
+            self.risk.peak = d.get('peak',self.risk.cap)
+            self.risk.tt = d.get('tt',0)
+            self.risk.wt = d.get('wt',0)
+        except: pass
     
-    def _save_state(self):
-        with open('dl/state.json', 'w') as f:
-            json.dump({
-                'capital': self.risk.capital,
-                'peak': self.risk.peak,
-                'trades': self.risk.total_trades,
-                'wins': self.risk.winning_trades
-            }, f)
+    def _save(self):
+        with open('treo_state.json','w') as f:
+            json.dump({'cap':self.risk.cap,'peak':self.risk.peak,'tt':self.risk.tt,'wt':self.risk.wt},f)
     
-    def log(self, msg, level='info'):
-        self.logs.append({
-            'time': datetime.now().strftime('%H:%M:%S'),
-            'msg': msg,
-            'level': level
-        })
-        colors = {
-            'info': C.D, 'success': C.LG, 'error': C.LR,
-            'ai': C.LC, 'bet': C.LM, 'win': C.LG, 'lose': C.LR
-        }
-        print(f"{colors.get(level, C.D)}[{datetime.now():%H:%M:%S}] {msg}{C.RS}")
+    def log(self, msg, lv='info'):
+        self.logs.append({'t':datetime.now().strftime('%H:%M:%S'),'m':msg,'l':lv})
+        cc = {'info':C.D,'success':C.LG,'error':C.LR,'ai':C.LC,'bet':C.LM,'win':C.LG,'lose':C.LR}
+        print(f"{cc.get(lv,C.D)}[{datetime.now():%H:%M:%S}] {msg}{C.RS}")
     
     def render(self):
-        os.system('cls' if os.name == 'nt' else 'clear')
+        os.system('cls' if os.name=='nt' else 'clear')
+        eng = self.eng
+        pred = eng.lp if eng else None
         
-        eng = self.engine
-        pred = eng.last_prediction if eng else None
+        st = f"{C.LG}🤖 AUTO{C.RS}" if self.auto else f"{C.Y}🔧 MANUAL{C.RS}"
+        if self.paused: st = f"{C.LR}⏸️ PAUSE{C.RS}"
+        elif self.active: st = f"{C.LG}🟢 LIVE{C.RS} {st}"
+        else: st = f"{C.D}🔴 WAIT{C.RS} {st}"
         
-        status = f"{C.LG}🤖 AUTO{C.RS}" if self.auto_mode else f"{C.Y}🔧 MANUAL{C.RS}"
-        if self.paused:
-            status = f"{C.LR}⏸️ PAUSED{C.RS}"
-        elif self.active:
-            status = f"{C.LG}🟢 LIVE{C.RS} {status}"
+        profit = self.risk.cap - 1000000
+        pc = C.LG if profit>=0 else C.LR
+        dd = self.risk.dd()
+        dc = C.LG if dd<0.1 else C.Y if dd<0.2 else C.LR
+        wr = self.risk.wt/max(1,self.risk.tt)
+        ai_acc = self.ai.acc(50)
+        
+        bm = CFG.get('bet_mode','fixed')
+        if bm == 'fixed':
+            bs = f"Cố định {CFG.get('fixed_bet',10000):,}đ"
         else:
-            status = f"{C.D}🔴 WAIT{C.RS} {status}"
+            est = int(self.risk.cap*(CFG.get('bet_percent',5)/100))
+            bs = f"{CFG.get('bet_percent',5)}% (~{est:,}đ)"
         
-        profit = self.risk.capital - CFG.get('capital', 1000000)
-        p_color = C.LG if profit >= 0 else C.LR
-        dd = self.risk.get_drawdown()
-        dd_color = C.LG if dd < 0.1 else C.Y if dd < 0.2 else C.LR
-        wr = self.risk.winning_trades / max(1, self.risk.total_trades)
-        ai_acc = self.ai.accuracy(50)
+        ss = CFG.get('bet_side','auto')
+        if ss == 'auto': ss = 'AI chọn'
+        elif ss == 'T': ss = 'TÀI'
+        else: ss = 'XỈU'
         
-        bet_mode = CFG.get('bet_mode', 'fixed')
-        if bet_mode == 'fixed':
-            bet_str = f"Cố định {CFG.get('fixed_bet', 10000):,}đ"
-        else:
-            est = int(self.risk.capital * (CFG.get('bet_percent', 5) / 100))
-            bet_str = f"{CFG.get('bet_percent', 5)}% (~{est:,}đ)"
-        
-        side_str = CFG.get('bet_side', 'auto')
-        if side_str == 'auto': side_str = 'AI tự chọn'
-        elif side_str == 'T': side_str = 'TÀI'
-        else: side_str = 'XỈU'
-        
-        rec_str = f"{C.LG}BẬT{C.RS}" if CFG.get('recovery_enabled') else f"{C.LR}TẮT{C.RS}"
+        rec = f"{C.LG}BẬT{C.RS}" if CFG.get('recovery') else f"{C.LR}TẮT{C.RS}"
         
         print(f"""
 {C.CY}╔{'═'*60}╗{C.RS}
-{C.CY}║{C.RS} {C.BOLD}🚀 TREO CƯỢC SIÊU AI - FULL TOOL{C.RS}{' '*(60-38)}{C.CY}║{C.RS}
-{C.CY}║{C.RS} {status} {C.D}⏱️ {str(datetime.now()-self.start_time).split('.')[0]}{C.RS}{' '*(60-35)}{C.CY}║{C.RS}
+{C.CY}║{C.RS} {C.BOLD}🚀 TREO CƯỢC SIÊU AI - CHẠY LUÔN{C.RS}{' '*(60-40)}{C.CY}║{C.RS}
+{C.CY}║{C.RS} {st} {C.D}⏱️ {str(datetime.now()-self.st).split('.')[0]}{C.RS}{' '*(60-35)}{C.CY}║{C.RS}
 {C.CY}╠{'═'*60}╣{C.RS}""")
         
         if pred:
-            s_color = C.LG if pred['side'] == 'T' else C.LR
-            cf = pred['confidence']
-            c_color = C.LG if cf >= 0.7 else C.Y if cf >= 0.55 else C.LR
-            reasons = ' | '.join(pred.get('reasons', [])[:3])
-            print(f"{C.CY}║{C.RS} {C.W}🧠 AI:{C.RS} {s_color}{pred['side']}{C.RS} {c_color}{cf:.0%}{C.RS} [{pred.get('level','?')}]")
-            if reasons:
-                print(f"{C.CY}║{C.RS} {C.D}📝 {reasons}{C.RS}")
+            sc = C.LG if pred['s']=='T' else C.LR
+            print(f"{C.CY}║{C.RS} {C.W}🧠 AI:{C.RS} {sc}{pred['s']}{C.RS} {pred['c']:.0%} [{pred['lv']}]")
         
         if eng:
-            prog = eng.progress()
-            rem = eng.remaining()
-            bar = self._bar(prog)
-            print(f"{C.CY}║{C.RS} {C.W}📊 Phiên:{C.RS} {bar} {C.LC}{prog:.0%}{C.RS} Còn{C.Y}{rem}s{C.RS} Đã đặt{len(eng.bets_placed)}/{CFG.get('max_bets_per_session',1)}")
+            p = eng.prog(); r = eng.rem()
+            bar = self._bar(p)
+            print(f"{C.CY}║{C.RS} {C.W}📊 Phiên:{C.RS} {bar} {C.LC}{p:.0%}{C.RS} Còn{C.Y}{r}s{C.RS} Đã đặt{len(eng.bp)}/{CFG.get('max_bets',1)}")
         
         print(f"{C.CY}╠{'═'*60}╣{C.RS}")
-        print(f"{C.CY}║{C.RS} {C.W}💰 Vốn:{C.RS} {C.LG}{self.risk.capital:>12,}đ{C.RS} P/L:{p_color}{profit:>10,}đ{C.RS} DD:{dd_color}{dd:>5.1%}{C.RS}")
-        print(f"{C.CY}║{C.RS} {C.W}📈 Trades:{C.RS} {self.risk.total_trades} WR:{wr:.0%} Streak:W{self.risk.consecutive_wins}/L{self.risk.consecutive_losses} AI:{ai_acc:.0%}")
+        print(f"{C.CY}║{C.RS} {C.W}💰 Vốn:{C.RS} {C.LG}{self.risk.cap:>12,}đ{C.RS} P/L:{pc}{profit:>10,}đ{C.RS} DD:{dc}{dd:>5.1%}{C.RS}")
+        print(f"{C.CY}║{C.RS} {C.W}📈 Trades:{C.RS} {self.risk.tt} WR:{wr:.0%} Streak:W{self.risk.cw}/L{self.risk.cl} AI:{ai_acc:.0%}")
         print(f"{C.CY}╠{'═'*60}╣{C.RS}")
-        print(f"{C.CY}║{C.RS} {C.W}⚙️ Tiền:{C.RS} {bet_str} | Cửa:{side_str} | Recovery:{rec_str}")
-        print(f"{C.CY}║{C.RS} {C.W}🎯 TP:{C.LG}{CFG.get('take_profit',500000)//1000}k{C.RS} SL:{C.LR}{CFG.get('stop_loss',500000)//1000}k{C.RS} | Min:{CFG.get('min_bet',1000):,} Max:{CFG.get('max_bet',10000000):,}")
+        print(f"{C.CY}║{C.RS} {C.W}⚙️ Tiền:{C.RS} {bs} | Cửa:{ss} | Recovery:{rec}")
+        print(f"{C.CY}║{C.RS} {C.W}🎯 TP:{C.LG}{CFG.get('tp')//1000}k{C.RS} SL:{C.LR}{CFG.get('sl')//1000}k{C.RS}")
         
         for log in list(self.logs)[-4:]:
-            c = {'success':C.LG,'error':C.LR,'ai':C.LC,'bet':C.LM}.get(log['level'],C.D)
-            print(f"{C.CY}║{C.RS} {c}[{log['time']}] {log['msg'][:55]}{C.RS}")
+            c = {'success':C.LG,'error':C.LR,'ai':C.LC,'bet':C.LM}.get(log['l'],C.D)
+            print(f"{C.CY}║{C.RS} {c}[{log['t']}] {log['m'][:55]}{C.RS}")
         
         print(f"{C.CY}╚{'═'*60}╝{C.RS}")
-        print(f"\n{C.D}MENU: [1]Auto [2]Tiền [3]Cửa [4]TP/SL [5]Recovery [6]Min/Max [7]TT [8]Thoát{C.RS}")
+        print(f"\n{C.D}[1]Auto [2]Tiền [3]Cửa [4]TP/SL [5]Recovery [6]TT [7]Thoát{C.RS}")
         print(f"{C.D}Lệnh: /auto /tien 50k /side T /tp 500k /recovery /tt /his /help{C.RS}")
     
     def _bar(self, pct, w=18):
-        pct = max(0, min(1, pct))
-        f = int(pct * w)
-        if pct >= 0.7: return f"{C.LG}{'█'*f}{C.D}{'░'*(w-f)}{C.RS}"
-        elif pct >= 0.4: return f"{C.Y}{'█'*f}{C.D}{'░'*(w-f)}{C.RS}"
+        pct = max(0,min(1,pct))
+        f = int(pct*w)
+        if pct>=0.7: return f"{C.LG}{'█'*f}{C.D}{'░'*(w-f)}{C.RS}"
+        elif pct>=0.4: return f"{C.Y}{'█'*f}{C.D}{'░'*(w-f)}{C.RS}"
         else: return f"{C.LR}{'█'*f}{C.D}{'░'*(w-f)}{C.RS}"
     
-    async def handle_message(self, text, src):
-        if not text or self.paused:
-            return
-        
-        info = self.detector.detect(text)
-        if not info:
-            return
-        
-        t = info['type']
+    async def handle(self, text, src):
+        if not text or self.paused: return
+        info = self.det.detect(text)
+        if not info: return
+        t = info['t']
         
         if src == 'channel':
             if t == 'open':
-                self.engine.on_open()
-                self.active = True
-                self.session_count += 1
-                pred = self.engine.last_prediction
-                self.log(f"🔓 #{self.session_count} | AI:{pred['side']} ({pred['confidence']:.0%})", 'ai')
+                self.eng.on_open()
+                self.active = True; self.sess += 1
+                pred = self.eng.lp
+                self.log(f"🔓 #{self.sess} | AI:{pred['s']} ({pred['c']:.0%})", 'ai')
                 self.render()
-                if self.auto_mode:
-                    asyncio.create_task(self._auto_trade())
-            
+                if self.auto: asyncio.create_task(self._auto())
             elif t == 'close':
-                self.engine.state = 'closed'
-                self.active = False
-                self.log("🔒 ĐÓNG PHIÊN", 'info')
-                self.render()
-            
+                self.eng.st = 'closed'; self.active = False
+                self.log("🔒 ĐÓNG", 'info'); self.render()
             elif t == 'result':
-                self.engine.state = 'result'
-                self.active = False
-                await self._handle_result(info.get('winner'))
-        
+                self.eng.st = 'result'; self.active = False
+                await self._result(info.get('w'))
         elif src == 'bot':
-            if t == 'bet_success':
-                self.engine.bet_status = 'confirmed'
-                self.log(f"✅ Cược {info.get('side','?')} thành công", 'success')
-                self.render()
+            if t == 'bet_ok':
+                self.eng.bs = 'ok'
+                self.log(f"✅ Cược {info.get('s','?')} OK", 'success'); self.render()
             elif t == 'win':
-                self.engine.bet_status = 'won'
-                self.log("🎉 THẮNG!", 'win')
-                self.render()
+                self.eng.bs = 'won'
+                self.log("🎉 THẮNG!", 'win'); self.render()
             elif t == 'loss':
-                self.engine.bet_status = 'lost'
-                self.log("💔 THUA!", 'lose')
-                self.render()
-            elif t == 'balance':
-                self.risk.update_capital(info.get('amount', 0))
+                self.eng.bs = 'lost'
+                self.log("💔 THUA!", 'lose'); self.render()
+            elif t == 'bal':
+                self.risk.upd(info.get('a',0))
     
-    async def _handle_result(self, winner):
-        if not winner:
-            self.render()
-            return
+    async def _result(self, w):
+        if not w: self.render(); return
+        self.ai.add(w)
+        tpl = 0
         
-        self.ai.add(winner)
-        total_pl = 0
+        for b in self.eng.bp:
+            won = w == b['s']
+            amt = b['a']
+            pl = int(amt*0.95) if won else -amt
+            tpl += pl
+            self.risk.rec(won)
+            self.ai.record(b['s'], w)
         
-        for bet in self.engine.bets_placed:
-            won = winner == bet['side']
-            amt = bet['amount']
-            pl = int(amt * 0.95) if won else -amt
-            total_pl += pl
-            self.risk.record_trade(won)
-            self.ai.record(bet['side'], winner)
+        self.risk.upd(self.risk.cap + tpl)
         
-        self.risk.update_capital(self.risk.capital + total_pl)
+        if self.eng.bp:
+            ps = f"+{tpl:,}đ" if tpl>=0 else f"{tpl:,}đ"
+            self.log(f"📊 KQ:{w} | {ps} | Vốn:{self.risk.cap:,}đ", 'win' if tpl>=0 else 'lose')
         
-        if self.engine.bets_placed:
-            pl_str = f"+{total_pl:,}đ" if total_pl >= 0 else f"{total_pl:,}đ"
-            self.log(f"📊 KQ:{winner} | {pl_str} | Vốn:{self.risk.capital:,}đ",
-                    'win' if total_pl >= 0 else 'lose')
-        
-        stop, reason = self.risk.should_stop()
+        stop, reason = self.risk.stop()
         if stop:
             self.log(f"🛑 DỪNG: {reason}", 'error')
-            self.paused = True
-            self.auto_mode = False
+            self.paused = True; self.auto = False
         
-        self._save_state()
-        self.render()
+        self._save(); self.render()
     
-    async def _auto_trade(self):
+    async def _auto(self):
         await asyncio.sleep(2)
-        
-        while self.active and not self.paused and self.auto_mode:
-            can, reason = self.engine.can_bet()
-            
+        while self.active and not self.paused and self.auto:
+            can, reason = self.eng.can_bet()
             if can:
-                pred = self.engine.last_prediction
-                if pred and pred['confidence'] * 100 >= CFG.get('min_confidence', 55):
-                    side = pred['side'] if CFG.get('bet_side') == 'auto' else CFG.get('bet_side', 'T')
-                    amt = self.risk.calculate_bet(pred['confidence'])
-                    ok, msg = await self.engine.execute_bet(side, amt)
+                pred = self.eng.lp
+                if pred and pred['c']*100 >= CFG.get('min_confidence',55):
+                    side = pred['s'] if CFG.get('bet_side')=='auto' else CFG.get('bet_side','T')
+                    amt = self.risk.bet(pred['c'])
+                    ok, msg = await self.eng.exec_bet(side, amt)
                     self.log(f"{'✅' if ok else '❌'} {msg}", 'bet' if ok else 'error')
                     break
                 else:
-                    self.log("⏭️ Bỏ qua: Độ tin cậy thấp", 'error')
-                    break
+                    self.log("⏭️ Skip: conf thấp", 'error'); break
             else:
-                if any(k in reason for k in ['Đủ', 'đóng', 'Flood']):
-                    break
+                if any(k in reason for k in ['Đủ','đóng','Flood']): break
                 await asyncio.sleep(2)
         
-        # Fallback cuối phiên
-        if self.active and not self.paused and self.auto_mode:
-            rem = self.engine.remaining()
-            if 5 < rem < 15 and len(self.engine.bets_placed) < CFG.get('max_bets_per_session', 1):
-                pred = self.engine.last_prediction
-                if pred and pred['confidence'] * 100 >= CFG.get('min_confidence', 55):
-                    side = pred['side'] if CFG.get('bet_side') == 'auto' else CFG.get('bet_side', 'T')
-                    ok, msg = await self.engine.execute_bet(side, self.risk.calculate_bet(pred['confidence']))
-                    self.log(f"🆘 Fallback: {msg}", 'bet' if ok else 'error')
-        
+        if self.active and not self.paused and self.auto:
+            r = self.eng.rem()
+            if 5<r<15 and len(self.eng.bp) < CFG.get('max_bets',1):
+                pred = self.eng.lp
+                if pred and pred['c']*100 >= CFG.get('min_confidence',55):
+                    side = pred['s'] if CFG.get('bet_side')=='auto' else CFG.get('bet_side','T')
+                    ok, msg = await self.eng.exec_bet(side, self.risk.bet(pred['c']))
+                    self.log(f"🆘 FB: {msg}", 'bet' if ok else 'error')
         self.render()
     
-    async def menu_loop(self):
+    async def menu(self):
         print(f"{C.LC}>>> MENU ĐIỀU KHIỂN SẴN SÀNG{C.RS}")
         print(f"{C.D}>>> Nhập số hoặc lệnh, /help để xem menu{C.RS}")
         
         while True:
             try:
                 cmd = input(f"{C.W}>>> {C.RS}").strip().lower()
-                if not cmd:
-                    continue
+                if not cmd: continue
                 
-                if cmd in ['1', '/auto']:
-                    self.auto_mode = not self.auto_mode
-                    if self.engine: self.engine.auto_trade = self.auto_mode
-                    self.log(f"🤖 AUTO: {'BẬT' if self.auto_mode else 'TẮT'}", 'ai')
+                if cmd in ['1','/auto']:
+                    self.auto = not self.auto
+                    if self.eng: self.eng.at = self.auto
+                    self.log(f"🤖 AUTO: {'BẬT' if self.auto else 'TẮT'}", 'ai')
                     self.render()
                 
                 elif cmd.startswith('/tien') or cmd == '2':
@@ -727,267 +569,172 @@ class Tool:
                         try:
                             amt = int(parts[-1].lower().replace('k','000').replace('m','000000'))
                             if amt == 0:
-                                CFG.set('bet_mode', 'percent')
-                                self.log(f"→ Chế độ % vốn ({CFG.get('bet_percent',5)}%)", 'info')
+                                CFG.set('bet_mode','percent')
+                                self.log(f"→ % vốn ({CFG.get('bet_percent',5)}%)", 'info')
                             else:
-                                CFG.set('bet_mode', 'fixed')
+                                CFG.set('bet_mode','fixed')
                                 CFG.set('fixed_bet', amt)
-                                self.log(f"→ Cố định {amt:,}đ/lần", 'info')
-                            CFG.save()
-                            self.render()
-                        except:
-                            print(f"{C.LR}Sai số. VD: /tien 50000{C.RS}")
-                    else:
-                        print(f"{C.Y}VD: /tien 50000 (cố định) hoặc /tien 0 (% vốn){C.RS}")
+                                self.log(f"→ {amt:,}đ/lần", 'info')
+                            CFG.save(); self.render()
+                        except: print(f"{C.LR}Sai số{C.RS}")
+                    else: print(f"{C.Y}VD: /tien 50000{C.RS}")
                 
                 elif cmd.startswith('/side') or cmd == '3':
                     parts = cmd.split()
                     if len(parts) >= 2:
                         s = parts[-1].upper()
-                        if s in ['T', 'X', 'AUTO']:
+                        if s in ['T','X','AUTO']:
                             CFG.set('bet_side', s)
                             self.log(f"→ Cửa: {s}", 'info')
-                            CFG.save()
-                            self.render()
-                        else:
-                            print(f"{C.LR}Chọn T, X hoặc auto{C.RS}")
-                    else:
-                        print(f"{C.Y}VD: /side T (TÀI) /side X (XỈU) /side auto (AI chọn){C.RS}")
+                            CFG.save(); self.render()
+                        else: print(f"{C.LR}Chọn T, X hoặc auto{C.RS}")
+                    else: print(f"{C.Y}VD: /side T{C.RS}")
                 
                 elif cmd.startswith('/tp') or cmd == '4':
                     parts = cmd.split()
                     if len(parts) >= 2:
                         try:
-                            CFG.set('take_profit', int(parts[-1].lower().replace('k','000').replace('m','000000')))
-                            self.log(f"→ TP: {CFG.get('take_profit'):,}đ", 'info')
-                            CFG.save()
-                            self.render()
-                        except:
-                            print(f"{C.LR}Sai số{C.RS}")
-                    else:
-                        print(f"{C.Y}VD: /tp 500000{C.RS}")
+                            CFG.set('tp', int(parts[-1].lower().replace('k','000').replace('m','000000')))
+                            self.log(f"→ TP: {CFG.get('tp'):,}đ", 'info')
+                            CFG.save(); self.render()
+                        except: print(f"{C.LR}Sai số{C.RS}")
                 
                 elif cmd.startswith('/sl'):
                     parts = cmd.split()
                     if len(parts) >= 2:
                         try:
-                            CFG.set('stop_loss', int(parts[-1].lower().replace('k','000').replace('m','000000')))
-                            self.log(f"→ SL: {CFG.get('stop_loss'):,}đ", 'info')
-                            CFG.save()
-                            self.render()
-                        except:
-                            print(f"{C.LR}Sai số{C.RS}")
+                            CFG.set('sl', int(parts[-1].lower().replace('k','000').replace('m','000000')))
+                            self.log(f"→ SL: {CFG.get('sl'):,}đ", 'info')
+                            CFG.save(); self.render()
+                        except: print(f"{C.LR}Sai số{C.RS}")
                 
-                elif cmd in ['5', '/recovery']:
-                    CFG.set('recovery_enabled', not CFG.get('recovery_enabled'))
-                    self.log(f"🔄 Recovery: {'BẬT' if CFG.get('recovery_enabled') else 'TẮT'}", 'info')
-                    CFG.save()
-                    self.render()
+                elif cmd in ['5','/recovery']:
+                    CFG.set('recovery', not CFG.get('recovery'))
+                    self.log(f"🔄 Recovery: {'BẬT' if CFG.get('recovery') else 'TẮT'}", 'info')
+                    CFG.save(); self.render()
                 
-                elif cmd.startswith('/min') or cmd == '6':
-                    parts = cmd.split()
-                    if len(parts) >= 2:
-                        try:
-                            CFG.set('min_bet', int(parts[-1].lower().replace('k','000').replace('m','000000')))
-                            self.log(f"→ Min: {CFG.get('min_bet'):,}đ", 'info')
-                            CFG.save()
-                            self.render()
-                        except:
-                            print(f"{C.LR}Sai số{C.RS}")
+                elif cmd in ['6','/tt','/info']:
+                    profit = self.risk.cap - 1000000
+                    print(f"""
+{C.CY}THÔNG TIN:{C.RS}
+  Vốn: {C.LG}{self.risk.cap:,}đ{C.RS}
+  Lãi/Lỗ: {C.LG if profit>=0 else C.LR}{profit:+,}đ{C.RS}
+  DD: {self.risk.dd():.1%}
+  Trades: {self.risk.tt} | WR: {self.risk.wt/max(1,self.risk.tt):.0%}
+  Streak: W{self.risk.cw}/L{self.risk.cl}
+  AI Acc: {self.ai.acc():.0%}
+  Phiên: {self.sess}
+                    """)
                 
-                elif cmd.startswith('/max'):
-                    parts = cmd.split()
-                    if len(parts) >= 2:
-                        try:
-                            CFG.set('max_bet', int(parts[-1].lower().replace('k','000').replace('m','000000')))
-                            self.log(f"→ Max: {CFG.get('max_bet'):,}đ", 'info')
-                            CFG.save()
-                            self.render()
-                        except:
-                            print(f"{C.LR}Sai số{C.RS}")
+                elif cmd in ['7','/exit','quit']: break
                 
-                elif cmd in ['7', '/tt', '/info']:
-                    profit = self.risk.capital - CFG.get('capital', 1000000)
+                elif cmd in ['/his','/history']:
+                    for log in list(self.logs)[-20:]:
+                        c = {'success':C.LG,'error':C.LR,'ai':C.LC,'bet':C.LM}.get(log['l'],C.D)
+                        print(f"  {c}[{log['t']}] {log['m']}{C.RS}")
+                
+                elif cmd in ['/help','/menu']:
                     print(f"""
 {C.CY}╔{'═'*45}╗
-║{C.BOLD}           THÔNG TIN HỆ THỐNG{C.RS}{C.CY}              ║
+║{C.BOLD}         📋 MENU ĐIỀU KHIỂN{C.RS}{C.CY}            ║
 ╠{'═'*45}╣
-║ Vốn:      {C.LG}{self.risk.capital:>15,}đ{C.RS}     {C.CY}║
-║ Lãi/Lỗ:   {C.LG if profit>=0 else C.LR}{profit:>15,}đ{C.RS}     {C.CY}║
-║ Peak:     {C.LG}{self.risk.peak:>15,}đ{C.RS}     {C.CY}║
-║ DD:       {self.risk.get_drawdown():>14.1%}{C.RS}     {C.CY}║
-║ Trades:   {self.risk.total_trades:>15}{C.RS}     {C.CY}║
-║ Win Rate: {self.risk.winning_trades/max(1,self.risk.total_trades):>14.0%}{C.RS}     {C.CY}║
-║ Streak:   W{self.risk.consecutive_wins}/L{self.risk.consecutive_losses:>13}{C.RS}     {C.CY}║
-║ AI Acc:   {self.ai.accuracy():>14.0%}{C.RS}     {C.CY}║
-║ Phiên:    {self.session_count:>15}{C.RS}     {C.CY}║
+║ [1] /auto     - Bật/tắt tự động                {C.CY}║
+║ [2] /tien 50k - Đặt tiền cố định               {C.CY}║
+║ [3] /side T   - Chọn cửa T/X/auto              {C.CY}║
+║ [4] /tp 500k  - Take profit                    {C.CY}║
+║ [5] /recovery - Bật/tắt gấp thếp               {C.CY}║
+║ [6] /tt       - Xem thông tin                  {C.CY}║
+║ [7] /exit     - Thoát                          {C.CY}║
+║     /his      - Xem lịch sử                    {C.CY}║
+║     /save     - Lưu cấu hình                   {C.CY}║
 ╚{'═'*45}╝{C.RS}""")
                 
-                elif cmd in ['8', '/exit', 'quit']:
-                    print(f"{C.Y}Đang thoát...{C.RS}")
-                    break
-                
-                elif cmd in ['/his', '/history']:
-                    print(f"\n{C.CY}📜 20 LOG GẦN NHẤT:{C.RS}")
-                    for log in list(self.logs)[-20:]:
-                        c = {'success':C.LG,'error':C.LR,'ai':C.LC,'bet':C.LM}.get(log['level'],C.D)
-                        print(f"  {c}[{log['time']}] {log['msg']}{C.RS}")
-                
-                elif cmd in ['/help', '/menu']:
-                    print(f"""
-{C.CY}╔{'═'*50}╗
-║{C.BOLD}           📋 MENU ĐIỀU KHIỂN{C.RS}{C.CY}              ║
-╠{'═'*50}╣
-║ [1] /auto      - Bật/tắt tự động                   {C.CY}║
-║ [2] /tien 50k  - Đặt tiền cố định                  {C.CY}║
-║ [3] /side T    - Chọn cửa T/X/auto                 {C.CY}║
-║ [4] /tp 500k   - Take profit                       {C.CY}║
-║ [5] /recovery  - Bật/tắt gấp thếp                  {C.CY}║
-║ [6] /min 10k   - Tiền tối thiểu                    {C.CY}║
-║ [7] /tt        - Xem thông tin                     {C.CY}║
-║ [8] /exit      - Thoát                             {C.CY}║
-║     /his       - Xem lịch sử                       {C.CY}║
-║     /save      - Lưu cấu hình                      {C.CY}║
-╚{'═'*50}╝{C.RS}""")
-                
                 elif cmd == '/save':
-                    self._save_state()
-                    CFG.save()
+                    self._save(); CFG.save()
                     print(f"{C.LG}💾 Đã lưu!{C.RS}")
                 
-                elif cmd == 'clear':
-                    self.render()
-                
-                else:
-                    print(f"{C.D}Không rõ lệnh. /help để xem menu{C.RS}")
+                elif cmd == 'clear': self.render()
+                else: print(f"{C.D}Không rõ lệnh. /help{C.RS}")
                 
             except KeyboardInterrupt:
-                print(f"\n{C.Y}Thoát...{C.RS}")
-                break
+                print(f"\n{C.Y}Thoát...{C.RS}"); break
             except Exception as e:
                 print(f"{C.LR}Lỗi: {e}{C.RS}")
     
     async def run(self):
-        os.system('cls' if os.name == 'nt' else 'clear')
+        os.system('cls' if os.name=='nt' else 'clear')
         
         print(f"""
-{C.CY}╔{'═'*60}╗
-║  🚀 TREO CƯỢC SIÊU AI - FULL TOOL                      ║
-║  🤖 AUTO BET - AI DỰ ĐOÁN - QUẢN LÝ VỐN              ║
-║  💻 CHẠY TRÊN: WINDOWS / MAC / REPLIT / RENDER        ║
-╚{'═'*60}╝{C.RS}""")
+{C.CY}╔{'═'*55}╗
+║  🚀 TREO CƯỢC SIÊU AI - CHẠY LUÔN                   ║
+║  🤖 AUTO BET - AI DỰ ĐOÁN - NHẬP OTP TRỰC TIẾP    ║
+╚{'═'*55}╝{C.RS}""")
         
         try:
-            session_str = CFG.get('session_string', '') or os.environ.get('SESSION_STRING', '')
+            print(f"\n{C.Y}>>> ĐANG KẾT NỐI TELEGRAM...{C.RS}")
+            self.client = TelegramClient(SESSION_FILE, API_ID, API_HASH)
             
-            if session_str:
-                self.client = TelegramClient(StringSession(session_str), 
-                                             CFG.get('api_id'), 
-                                             CFG.get('api_hash'))
-            else:
-                self.client = TelegramClient('session_tool', 
-                                             CFG.get('api_id'), 
-                                             CFG.get('api_hash'))
+            await self.client.connect()
             
-            await self.client.start(CFG.get('phone'))
+            if not await self.client.is_user_authorized():
+                print(f"{C.Y}>>> CHƯA ĐĂNG NHẬP - GỬI OTP ĐẾN {PHONE}{C.RS}")
+                await self.client.send_code_request(PHONE)
+                
+                otp = input(f"{C.W}>>> NHẬP MÃ OTP (5 số từ Telegram): {C.RS}").strip()
+                
+                try:
+                    await self.client.sign_in(PHONE, otp)
+                except SessionPasswordNeededError:
+                    pw = input(f"{C.W}>>> NHẬP MẬT KHẨU 2 LỚP: {C.RS}").strip()
+                    await self.client.sign_in(password=pw)
+            
             me = await self.client.get_me()
             self.log(f"Đăng nhập: {me.first_name} (@{me.username})", 'success')
             
             try:
-                ch = await self.client.get_entity(CFG.get('channel'))
+                ch = await self.client.get_entity(CHANNEL)
                 self.log(f"Kênh: {ch.title}", 'success')
             except:
-                self.log(f"KHÔNG TÌM THẤY KÊNH: {CFG.get('channel')}", 'error')
+                self.log(f"KHÔNG TÌM THẤY KÊNH: {CHANNEL}", 'error')
+                self.log(f"Hãy tham gia kênh {CHANNEL} trước!", 'error')
                 return
             
-            self.engine = Engine(self.ai, self.risk, self.client)
-            self.engine.auto_trade = self.auto_mode
+            self.eng = Engine(self.ai, self.risk, self.client)
+            self.eng.at = self.auto
             
             @self.client.on(events.NewMessage(chats=ch))
             async def on_ch(event):
-                try:
-                    await self.handle_message(event.message.text or '', 'channel')
-                except:
-                    pass
+                try: await self.handle(event.message.text or '', 'channel')
+                except: pass
             
-            @self.client.on(events.NewMessage(chats=CFG.get('bot')))
+            @self.client.on(events.NewMessage(chats=BOT))
             async def on_bot(event):
-                try:
-                    await self.handle_message(event.message.text or '', 'bot')
-                except:
-                    pass
+                try: await self.handle(event.message.text or '', 'bot')
+                except: pass
             
             self.log("🚀 TOOL ĐÃ SẴN SÀNG!", 'success')
-            self.log(f"Auto:{self.auto_mode} | Cửa:{CFG.get('bet_side')} | Tiền:{CFG.get('fixed_bet'):,}đ", 'info')
             self.render()
             
             await asyncio.gather(
                 self.client.run_until_disconnected(),
-                self.menu_loop()
+                self.menu()
             )
             
         except KeyboardInterrupt:
-            print(f"\n{C.Y}Dừng tool{C.RS}")
+            print(f"\n{C.Y}Dừng{C.RS}")
         except Exception as e:
             print(f"{C.LR}Lỗi: {e}{C.RS}")
             import traceback
             traceback.print_exc()
         finally:
-            if self.client:
-                await self.client.disconnect()
-            self._save_state()
-            CFG.save()
-            print(f"{C.Y}Đã lưu và thoát{C.RS}")
-
-# ==================== WEB SERVER ====================
-def run_web_server(tool):
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html; charset=utf-8')
-            self.end_headers()
-            
-            uptime = str(datetime.now() - tool.start_time).split('.')[0]
-            profit = tool.risk.capital - CFG.get('capital', 1000000)
-            wr = tool.risk.winning_trades / max(1, tool.risk.total_trades)
-            
-            logs_html = ''
-            for log in list(tool.logs)[-30:]:
-                c = {'success':'#0f0','error':'#f44','ai':'#0ff','bet':'#ff0'}.get(log['level'],'#888')
-                logs_html += f'<tr><td style="color:#666">{log["time"]}</td><td style="color:{c}">{log["msg"]}</td></tr>'
-            
-            self.wfile.write(f"""
-<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Treo Cuoc</title>
-<style>
-body{{font-family:Arial;background:#0a0e27;color:#fff;padding:15px}}
-.card{{background:#141b3d;border-radius:15px;padding:20px;margin:15px 0}}
-h1{{color:#00d4ff}} .g{{color:#0f0}} .r{{color:#f44}} .c{{color:#0ff}}
-table{{width:100%;border-collapse:collapse}}
-td{{padding:6px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:12px}}
-</style></head>
-<body>
-<h1>🚀 Treo Cuoc Auto</h1>
-<div class="card">
-<p>⏱️ Uptime: {uptime}</p>
-<p>💰 Vốn: <span class="c">{tool.risk.capital:,}đ</span></p>
-<p>📈 Lãi/Lỗ: <span class="{'g' if profit>=0 else 'r'}">{profit:+,}đ</span></p>
-<p>🎯 Win Rate: <span class="c">{wr:.0%}</span></p>
-<p>🤖 Auto: <span class="{'g' if tool.auto_mode else 'r'}">{'BẬT' if tool.auto_mode else 'TẮT'}</span></p>
-</div>
-<div class="card"><h3>📋 Logs</h3><table>{logs_html}</table></div>
-</body></html>""".encode())
-    
-    port = int(os.environ.get('PORT', 8000))
-    server = HTTPServer(('0.0.0.0', port), Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+            if self.client: await self.client.disconnect()
+            self._save(); CFG.save()
+            print(f"{C.Y}Đã lưu{C.RS}")
 
 # ==================== MAIN ====================
 if __name__ == '__main__':
-    tool = Tool()
-    run_web_server(tool)
     try:
-        asyncio.run(tool.run())
+        asyncio.run(Tool().run())
     except KeyboardInterrupt:
         print(f"\n{C.Y}Done{C.RS}")
     except Exception as e:
